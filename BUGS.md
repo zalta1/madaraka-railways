@@ -9,3 +9,5 @@
 8. **Admin report tables had no headers** – added.
 9. **Admin occupancy grid**: seat labels like "E1-10A" overflowed 40 px cells – widened.
 Open/known: see "Known limitations" in README (segment-level seat reuse, layout changes vs existing bookings).
+10. **Fresh clone could fail on a missing `data/` folder** – db.js now creates `data/pg` recursively and `data/.gitkeep` is committed.
+11. **Admin seat-editor filters stretched full width** – train/class/date selectors now sit on one row.

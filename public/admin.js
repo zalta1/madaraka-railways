@@ -48,10 +48,33 @@ window.adminPage = async function (app) {
     } else if (cur === 'seats') {
       const rows = await A('/seat-layouts'); const trips = await A('/trips');
       ab.innerHTML = `<h3>Coach layouts</h3><table><tr><th>Class</th><th>Coaches</th><th>Rows</th><th>Seats/row</th><th>Total</th><th></th></tr>${rows.map((l) => `<tr data-c="${l.class}"><td>${t(l.class)}</td><td><input type="number" name="coaches" value="${l.coaches}"></td><td><input type="number" name="rows" value="${l.rows}"></td><td><input type="number" name="cols" value="${l.cols}"></td><td>${l.coaches * l.rows * l.cols}</td><td><button class="btn" data-save>Save</button></td></tr>`).join('')}</table>
-       <h3>Occupancy</h3><div class="row"><select id="st">${trips.filter((x) => x.active).map((x) => `<option value="${x.id}">${esc(x.train_no)} – ${esc(x.route_name)}</option>`).join('')}</select><input type="date" id="sd" value="${addDays(todayStr(), 1)}"><select id="sc"><option>economy</option><option>first</option><option>premium</option></select><button class="btn" id="sv">View</button></div><div id="socc"></div>`;
+       <h3>Bookable seats per train</h3><p class="muted">Only seats switched on here are auto-assigned to customers. Click seats to select them, then open or close them. Already-booked tickets are not affected.</p>
+       <div class="row" style="flex-wrap:wrap"><select id="st" aria-label="Train">${trips.filter((x) => x.active).map((x) => `<option value="${x.id}" data-cl="${x.classes}">${esc(x.train_no)} – ${esc(x.route_name)}</option>`).join('')}</select><select id="sc" aria-label="Class"></select><input type="date" id="sd" aria-label="Show bookings for date" value="${addDays(todayStr(), 1)}"><button class="btn" id="sv">Load</button></div><div id="socc"></div>`;
       $$('[data-save]').forEach((b) => (b.onclick = async () => { const tr = b.closest('tr'); try { await A('/seat-layouts/' + tr.dataset.c, { method: 'PUT', body: { coaches: $('[name=coaches]', tr).value, rows: $('[name=rows]', tr).value, cols: $('[name=cols]', tr).value } }); toast('Layout saved'); window.adminPage(app); } catch (e) { err(e); } }));
-      $('#sv').onclick = async () => { const m = await A(`/seat-map?trip_id=${$('#st').value}&date=${$('#sd').value}&class=${$('#sc').value}`); const b = m.filter((x) => x.state !== 'free').length;
-        $('#socc').innerHTML = `<p>${b} of ${m.length} taken (${Math.round((b / Math.max(1, m.length)) * 100)}%)</p><div class="seats occ" style="grid-template-columns:repeat(auto-fill,52px)">${m.map((x) => `<span class="seat ${x.state === 'free' ? '' : x.state}" style="display:flex;align-items:center;justify-content:center">${x.seat}</span>`).join('')}</div>`; };
+      const classes = () => { const o = $('#st').selectedOptions[0]; $('#sc').innerHTML = o.dataset.cl.split(',').map((c) => `<option value="${c}">${t(c)}</option>`).join(''); };
+      classes(); $('#st').onchange = () => { classes(); load(); }; $('#sc').onchange = () => load(); $('#sd').onchange = () => load();
+      const picked = new Set();
+      const setSeats = async (seats, enabled) => { if (!seats.length) return toast('Select seats first'); try { const r = await A('/seat-availability', { method: 'PUT', body: { trip_id: $('#st').value, class: $('#sc').value, seats, enabled } }); toast(`${seats.length} seat(s) ${enabled ? 'opened' : 'closed'} · ${r.enabled_count} bookable`); picked.clear(); load(); } catch (e) { err(e); } };
+      async function load() {
+        const m = await A(`/seat-availability?trip_id=${$('#st').value}&class=${$('#sc').value}&date=${$('#sd').value}`); const L = m.layout; const left = Math.ceil(L.cols / 2);
+        let h = `<p><b>${m.enabled_count}</b> of ${m.seats.length} ${t(m.class)} seats on train ${esc(m.train_no)} are bookable. <span class="legend" style="display:inline-flex"><span>Open</span><span class="l-b">Closed</span><span class="l-m">Selected</span></span> · <span class="badge confirmed">●</span> booked on ${$('#sd').value}</p>
+          <div class="row" style="flex-wrap:wrap"><button class="btn" id="sOpen">Open selected</button><button class="btn danger" id="sClose">Close selected</button><button class="btn ghost" id="sClr">Clear selection</button></div>`;
+        for (let c = 1; c <= L.coaches; c++) {
+          const cs = m.seats.filter((x) => x.coach === c); const on = cs.filter((x) => x.enabled).length;
+          h += `<div class="coach"><div class="row" style="justify-content:space-between;flex-wrap:wrap"><b>Coach ${c} · ${on}/${cs.length} open</b><span><button class="btn ghost" data-csel="${c}">Select coach</button> <button class="btn" data-con="${c}">Open all</button> <button class="btn danger" data-coff="${c}">Close all</button></span></div>
+            <div class="seats" style="grid-template-columns:repeat(${left},44px) 18px repeat(${L.cols - left},44px);margin-top:8px">`;
+          cs.forEach((x, i) => { if (i % L.cols === left) h += '<span></span>'; h += `<button type="button" class="seat ${x.enabled ? '' : 'booked'} ${picked.has(x.seat) ? 'mine' : ''}" data-s="${x.seat}" aria-pressed="${picked.has(x.seat)}" title="${x.seat} ${x.enabled ? 'open' : 'closed'}${x.booked ? ', booked' : ''}">${x.seat.split('-')[1]}${x.booked ? '●' : ''}</button>`; });
+          h += '</div></div>';
+        }
+        $('#socc').innerHTML = h;
+        $$('#socc [data-s]').forEach((b) => (b.onclick = () => { const s = b.dataset.s; picked.has(s) ? picked.delete(s) : picked.add(s); b.classList.toggle('mine'); b.setAttribute('aria-pressed', picked.has(s)); }));
+        const coachSeats = (c) => m.seats.filter((x) => x.coach === Number(c)).map((x) => x.seat);
+        $$('#socc [data-csel]').forEach((b) => (b.onclick = () => { coachSeats(b.dataset.csel).forEach((s) => picked.add(s)); load(); }));
+        $$('#socc [data-con]').forEach((b) => (b.onclick = () => setSeats(coachSeats(b.dataset.con), true)));
+        $$('#socc [data-coff]').forEach((b) => (b.onclick = () => setSeats(coachSeats(b.dataset.coff), false)));
+        $('#sOpen').onclick = () => setSeats([...picked], true); $('#sClose').onclick = () => setSeats([...picked], false); $('#sClr').onclick = () => { picked.clear(); load(); };
+      }
+      $('#sv').onclick = load; await load();
     } else if (cur === 'messages') {
       const rows = await A('/messages'); ab.innerHTML = `<table><tr><th>When</th><th>From</th><th>Category</th><th>Message</th></tr>${rows.map((m) => `<tr><td>${new Date(m.created_at).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi' })}</td><td>${esc(m.name)}<br><small>${esc(m.email)}</small></td><td>${esc(m.category)}</td><td>${esc(m.body)}</td></tr>`).join('') || '<tr><td colspan=4 class="muted">No messages</td></tr>'}</table>`;
     }

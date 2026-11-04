@@ -9,7 +9,9 @@ async function open(dir) {
     db = { query: (q, p) => pool.query(q, p), exec: (q) => pool.query(q) };
   } else {
     const { PGlite } = require('@electric-sql/pglite');
-    const pg = dir === 'memory' ? new PGlite() : new PGlite(dir || path.join(__dirname, '..', 'data', 'pg'));
+    let pg;
+    if (dir === 'memory') pg = new PGlite();
+    else { const d = dir || path.join(__dirname, '..', 'data', 'pg'); require('fs').mkdirSync(d, { recursive: true }); pg = new PGlite(d); }
     await pg.waitReady;
     db = { query: (q, p) => pg.query(q, p), exec: (q) => pg.exec(q) };
   }
@@ -33,6 +35,7 @@ CREATE TABLE IF NOT EXISTS bookings(id SERIAL PRIMARY KEY, ref TEXT UNIQUE, grou
 CREATE TABLE IF NOT EXISTS passengers(id SERIAL PRIMARY KEY, booking_id INT REFERENCES bookings(id), full_name TEXT, id_no TEXT, gender TEXT, nationality TEXT, ptype TEXT, seat TEXT, fare NUMERIC, status TEXT DEFAULT 'active');
 CREATE TABLE IF NOT EXISTS payments(id SERIAL PRIMARY KEY, checkout_id TEXT UNIQUE, group_ref TEXT, method TEXT, phone TEXT, amount NUMERIC, status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT now());
 CREATE TABLE IF NOT EXISTS refunds(id SERIAL PRIMARY KEY, booking_id INT REFERENCES bookings(id), amount NUMERIC, fee NUMERIC, reason TEXT, status TEXT DEFAULT 'pending', created_at TIMESTAMPTZ DEFAULT now());
+CREATE TABLE IF NOT EXISTS seat_disabled(trip_id INT, class TEXT, seat TEXT, PRIMARY KEY(trip_id,class,seat));
 CREATE TABLE IF NOT EXISTS messages(id SERIAL PRIMARY KEY, name TEXT, email TEXT, mobile TEXT, category TEXT, body TEXT, created_at TIMESTAMPTZ DEFAULT now());
 `;
 

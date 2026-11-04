@@ -79,7 +79,7 @@ function home() {
     const n = v.adult + v.teenager + v.child + v.infant;
     if (v.adult < 1) errs.adult = ['At least one adult must travel.']; else if (n > 9) errs.adult = ['Up to 9 passengers per booking.']; else if (v.infant > v.adult) errs.infant = ['One infant per adult.'];
     if (Object.keys(errs).length) return showErrors(f, { errors: errs });
-    S.set('search', v); S.set('sel', {}); S.set('picks', {}); go('/booking');
+    S.set('search', v); S.set('sel', {}); go('/booking');
   };
 }
 let REACH = {};
@@ -104,60 +104,35 @@ async function results() {
     $('#res').innerHTML = legHtml(out, 'outbound') + (ret ? legHtml(ret, 'return') : '') + `<div class="card row" style="justify-content:space-between;position:sticky;bottom:40px"><div>${t('total')}: <b id="tot">${ksh(total())}</b></div><button class="btn alt" id="next">${t('continue')}</button></div>`;
     $$('.kbox').forEach((b) => (b.onclick = () => { const leg = b.closest('[data-leg]').dataset.leg; sel[leg] = JSON.parse(b.dataset.trip); S.set('sel', sel);
       $$(`[data-leg="${leg}"] .kbox`).forEach((x) => x.classList.toggle('on', x === b)); $('#tot').textContent = ksh(total()); }));
-    $('#next').onclick = () => { if (!sel.outbound || (s.trip === 'round' && !sel.return)) return toast(lang === 'sw' ? 'Chagua treni na daraja kwanza.' : 'Choose a train and class for each leg first.'); go('/booking/seats'); };
+    $('#next').onclick = () => { if (!sel.outbound || (s.trip === 'round' && !sel.return)) return toast(lang === 'sw' ? 'Chagua treni na daraja kwanza.' : 'Choose a train and class for each leg first.'); go('/booking/passengers'); };
   } catch (e) { $('#res').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
 
-// ---------------- Seats + passengers ----------------
-async function lockToken() { let tk = S.get('lockToken'); if (!tk) { tk = (await api('/rest/seat-locks/token', { body: {} })).token; S.set('lockToken', tk); } return tk; }
-async function seatsPage() {
+// ---------------- Passengers (seats are auto-assigned by the server) ----------------
+async function passengersPage() {
   const s = S.get('search'), sel = S.get('sel', {}); if (!s || !sel.outbound) return go('/');
-  const tk = await lockToken(); const legs = ['outbound', ...(s.trip === 'round' ? ['return'] : [])];
-  const need = s.adult + s.teenager + s.child; const picks = S.get('picks', {}); for (const l of legs) picks[l] = picks[l] || [];
+  const legs = ['outbound', ...(s.trip === 'round' ? ['return'] : [])];
+
   const ptypes = [...Array(s.adult).fill('adult'), ...Array(s.teenager).fill('teenager'), ...Array(s.child).fill('child'), ...Array(s.infant).fill('infant')];
   const saved = S.get('pax', []);
-  app.innerHTML = `<div class="split"><div><h2>${t('seats_title')}</h2><p class="muted">${lang === 'sw' ? `Chagua viti ${need} kwa kila safari. Viti hushikiliwa kwa dakika 10.` : `Choose ${need} seat(s) per leg. Seats you pick are held for you for 10 minutes. Infants sit on a lap.`}</p>
-   <div class="legend"><span>Free</span><span class="l-m">Your pick</span><span class="l-l">Held by someone else</span><span class="l-b">Booked</span></div><div id="maps"></div>
-   <h2>${t('passengers')}</h2><form id="paxForm" novalidate>${ptypes.map((p, i) => `<div class="card"><b>#${i + 1} · ${p}</b><div class="grid" style="margin-top:8px">
+  app.innerHTML = `<div class="split"><div>
+   <h2>${t('passengers')}</h2><p class="muted" id="autoNote">${t('auto_seats')}</p><form id="paxForm" novalidate>${ptypes.map((p, i) => `<div class="card"><b>#${i + 1} · ${p}</b><div class="grid" style="margin-top:8px">
      <div><label for="n${i}">${t('full_name')}</label><input id="n${i}" name="legs.0.passengers.${i}.full_name" value="${esc(saved[i]?.full_name || '')}" autocomplete="name"></div>
      ${['adult', 'teenager'].includes(p) ? `<div><label for="i${i}">${t('id_no')}</label><input id="i${i}" name="legs.0.passengers.${i}.id_no" value="${esc(saved[i]?.id_no || '')}"></div>` : ''}
      <div><label for="g${i}">${t('gender')}</label><select id="g${i}" name="legs.0.passengers.${i}.gender"><option value="">–</option><option ${saved[i]?.gender === 'M' ? 'selected' : ''} value="M">M</option><option ${saved[i]?.gender === 'F' ? 'selected' : ''} value="F">F</option></select></div>
      <div><label for="c${i}">${t('nationality')}</label><select id="c${i}" name="legs.0.passengers.${i}.nationality">${['Kenya', 'Uganda', 'Tanzania', 'Rwanda', 'Burundi', 'South Sudan', 'Other'].map((c) => `<option ${saved[i]?.nationality === c ? 'selected' : ''}>${c}</option>`).join('')}</select></div></div></div>`).join('')}
      <div class="card"><label for="phone">${t('pay_phone')}</label><input id="phone" name="phone" inputmode="tel" placeholder="07XX XXX XXX" value="${esc(S.get('phone', ''))}"></div></form></div>
-   <aside class="card sum"><h3>${t('summary')}</h3>${legs.map((l) => `<p><b>${t(l)}</b>: Train ${esc(sel[l].train_no)} · ${t(sel[l].class)}<br>${esc(stName(sel[l].from))} → ${esc(stName(sel[l].to))}<br>${sel[l].date} · ${sel[l].departure}<br>Seats: <span id="pk_${l}">–</span></p>`).join('')}
+   <aside class="card sum"><h3>${t('summary')}</h3>${legs.map((l) => `<p><b>${t(l)}</b>: Train ${esc(sel[l].train_no)} · ${t(sel[l].class)}<br>${esc(stName(sel[l].from))} → ${esc(stName(sel[l].to))}<br>${sel[l].date} · ${sel[l].departure}<br>${t('seats_auto_short')}</p>`).join('')}
    <p>${t('total')}: <b>${ksh(legs.reduce((a, l) => a + ptypes.reduce((b, p) => b + sel[l].fares[p], 0), 0))}</b></p><button class="btn alt wide" id="toPay">${t('continue')} → ${t('pay')}</button>
    <p><a href="/booking" data-link>← ${t('back')}</a></p></aside></div>`;
-  const renderMap = async (l) => {
-    const st = await api(`/rest/seat-locks/status?trip_id=${sel[l].trip_id}&date=${sel[l].date}&class=${sel[l].class}&token=${tk}`);
-    picks[l] = picks[l].filter((x) => st.seats.find((y) => y.seat === x && y.state === 'mine')); S.set('picks', picks);
-    const L = st.layout; let html = `<div class="card"><h3>${t(l)} · ${t(sel[l].class)}</h3>`;
-    for (let c = 1; c <= L.coaches; c++) {
-      const coachSeats = st.seats.filter((x) => x.seat.startsWith(`${sel[l].class[0].toUpperCase()}${c}-`));
-      const cols = L.cols; const left = Math.ceil(cols / 2);
-      html += `<div class="coach"><small>Coach ${c}</small><div class="seats" style="grid-template-columns:repeat(${left},40px) 18px repeat(${cols - left},40px)">`;
-      coachSeats.forEach((x, i) => { if (i % cols === left) html += '<span></span>'; html += `<button type="button" class="seat ${x.state}" data-leg="${l}" data-seat="${x.seat}" ${x.state === 'booked' || x.state === 'locked' ? 'disabled' : ''} aria-label="Seat ${x.seat} ${x.state}">${x.seat.split('-')[1]}</button>`; });
-      html += '</div></div>';
-    }
-    $('#map_' + l).innerHTML = html + '</div>'; $('#pk_' + l).textContent = picks[l].join(', ') || '–';
-    $$(`#map_${l} .seat:not([disabled])`).forEach((b) => (b.onclick = async () => {
-      const seat = b.dataset.seat;
-      try {
-        if (picks[l].includes(seat)) { await api('/rest/seat-locks/release', { body: { token: tk, trip_id: sel[l].trip_id, date: sel[l].date, seat } }); picks[l] = picks[l].filter((x) => x !== seat); }
-        else { if (picks[l].length >= need) return toast(`You only need ${need} seat(s). Tap a picked seat to free it.`); await api('/rest/seat-locks/lock', { body: { token: tk, trip_id: sel[l].trip_id, date: sel[l].date, seat, class: sel[l].class } }); picks[l].push(seat); }
-      } catch (e) { toast(e.message); }
-      S.set('picks', picks); renderMap(l);
-    }));
-  };
-  $('#maps').innerHTML = legs.map((l) => `<div id="map_${l}">Loading…</div>`).join(''); await Promise.all(legs.map(renderMap));
   $('#toPay').onclick = async () => {
     const f = $('#paxForm'); $$('.err', f).forEach((x) => x.remove());
-    for (const l of legs) if (picks[l].length !== need) return toast(lang === 'sw' ? 'Chagua viti vyote kwanza.' : `Pick ${need} seat(s) for the ${l} leg.`);
     const pax = ptypes.map((p, i) => ({ ptype: p, full_name: f[`legs.0.passengers.${i}.full_name`].value, id_no: f[`legs.0.passengers.${i}.id_no`]?.value, gender: f[`legs.0.passengers.${i}.gender`].value, nationality: f[`legs.0.passengers.${i}.nationality`].value }));
     S.set('pax', pax); S.set('phone', f.phone.value);
-    const body = { token: tk, phone: f.phone.value, legs: legs.map((l) => { let k = 0; return { trip_id: sel[l].trip_id, date: sel[l].date, from: sel[l].from, to: sel[l].to, class: sel[l].class, passengers: pax.map((p) => ({ ...p, seat: p.ptype === 'infant' ? null : picks[l][k++] })) }; }) };
+    const body = { phone: f.phone.value, legs: legs.map((l) => ({ trip_id: sel[l].trip_id, date: sel[l].date, from: sel[l].from, to: sel[l].to, class: sel[l].class, passengers: pax })) };
     const btn = $('#toPay'); btn.disabled = true;
-    try { const r = await api('/rest/booking-management/create', { body }); S.set('order', r); S.set('picks', {}); S.set('lockToken', null); go('/booking/pay'); }
-    catch (e) { const errs = {}; for (const [k, v] of Object.entries(e.errors)) errs[k.replace(/^legs\.1\./, 'legs.0.')] = v; showErrors(f, { ...e, errors: errs }); if (e.status === 409) await Promise.all(legs.map(renderMap)); }
+    try { const r = await api('/rest/booking-management/create', { body }); S.set('order', r); go('/booking/pay'); }
+    catch (e) { const errs = {}; for (const [k, v] of Object.entries(e.errors)) errs[k.replace(/^legs\.1\./, 'legs.0.')] = v; showErrors(f, { ...e, errors: errs }); if (e.status === 409) { $('#autoNote').innerHTML = `<span class="err">${esc(e.message)}</span> <a href="/booking" data-link>${t('back')}</a>`; toast(e.message); } }
     finally { btn.disabled = false; }
   };
 }
@@ -169,7 +144,7 @@ function payPage() {
    <div class="paym">${[['mpesa', 'M-Pesa'], ['card', 'Card'], ['equity', 'Equity Bank'], ['kcb', 'KCB Buni']].map(([k, n], i) => `<button class="kbox ${i ? '' : 'on'}" data-m="${k}"><b style="font-size:16px">${n}</b><small class="muted">mock</small></button>`).join('')}</div>
    <form id="payForm" style="margin-top:14px" novalidate><div id="payFields"></div><button class="btn alt wide" style="margin-top:12px">${t('pay_now')} ${ksh(o.amount)}</button></form>
    <p class="muted">${lang === 'sw' ? 'Muda wa kulipa: dakika 30.' : 'Seats are held for 30 minutes while you pay.'} Tip: a phone ending in 000 simulates a failed payment.</p></div>
-   <aside class="card"><h3>${t('ref')}: ${esc(o.group_ref)}</h3>${o.bookings.map((b) => `<p><b>${t(b.leg)}</b> ${esc(b.from.name)} → ${esc(b.to.name)}<br>${b.travel_date} · Train ${esc(b.train_no)} · ${t(b.class)}<br>Seats ${b.passengers.map((p) => p.seat || 'lap').join(', ')}</p>`).join('')}<p>${t('total')}: <b>${ksh(o.amount)}</b></p></aside></div>`;
+   <aside class="card"><h3>${t('ref')}: ${esc(o.group_ref)}</h3>${o.bookings.map((b) => `<p><b>${t(b.leg)}</b> ${esc(b.from.name)} → ${esc(b.to.name)}<br>${b.travel_date} · Train ${esc(b.train_no)} · ${t(b.class)}<br>${t('seats_assigned')}: ${b.passengers.map((p) => p.seat || 'lap').join(', ')}</p>`).join('')}<p>${t('total')}: <b>${ksh(o.amount)}</b></p></aside></div>`;
   let method = 'mpesa';
   const fields = () => { $('#payFields').innerHTML = method === 'mpesa' || method === 'kcb' ? `<label for="payphone">${t('phone')}</label><input id="payphone" name="phone" value="${esc(S.get('phone', ''))}" inputmode="tel">` : `<p class="muted">${method === 'card' ? 'You will see a simulated hosted card page. This demo has no card-number fields at all.' : 'You will be shown a simulated Equity checkout.'}</p>`; };
   fields(); $$('[data-m]').forEach((b) => (b.onclick = () => { method = b.dataset.m; $$('[data-m]').forEach((x) => x.classList.toggle('on', x === b)); fields(); }));
@@ -269,7 +244,7 @@ function contactPage() {
   $('#cf').onsubmit = async (e) => { e.preventDefault(); const f = e.target; $$('.err', f).forEach((x) => x.remove()); try { await api('/rest/contact', { body: Object.fromEntries(new FormData(f)) }); f.reset(); toast('Thanks – message received (demo).'); } catch (err) { showErrors(f, err); } };
 }
 
-const ROUTES = { '/': home, '/booking': results, '/booking/oneway': results, '/booking/seats': seatsPage, '/booking/pay': payPage, '/booking/done': donePage, '/booking/manage': managePage,
+const ROUTES = { '/': home, '/booking': results, '/booking/oneway': results, '/booking/passengers': passengersPage, '/booking/seats': passengersPage, '/booking/pay': payPage, '/booking/done': donePage, '/booking/manage': managePage,
   '/stations': stationsPage, '/fares': faresPage, '/faq': faqPage, '/about': aboutPage, '/contact': contactPage, '/login': loginPage, '/otp': loginPage, '/account': accountPage, '/account/bookings': accountPage, '/account/profile': accountPage, '/account/transactions': accountPage, '/admin': () => window.adminPage(app) };
 async function route() {
   const p = location.pathname.replace(/\/$/, '') || '/';

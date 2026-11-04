@@ -140,3 +140,29 @@ test('classic compatibility: fetch.php and validate.php', async () => {
   const v = await call('POST', '/validate.php', { fullnames: ['Ab'], ids: ['1'], pay_mobile: '0712345678' }); assert.equal(v.body.info, 'invalid');
   const ok = await call('POST', '/validate.php', { fullnames: ['Ann Wairimu'], ids: ['12345678'], pay_mobile: '0712345678' }); assert.equal(ok.body.info, 'valid');
 });
+test('admin seat availability: only enabled seats are auto-assigned; graceful message when full', async () => {
+  const tk = (await call('POST', '/api/admin/login', { username: 'admin', password: 'madaraka-demo' })).body.data.token;
+  assert.equal((await call('GET', '/api/admin/seat-availability?trip_id=2&class=premium')).status, 401);
+  const m = (await call('GET', `/api/admin/seat-availability?trip_id=2&class=premium&date=${D5}`, null, tk)).body.data;
+  assert.equal(m.seats.length, 18); assert.equal(m.enabled_count, 18);
+  assert.equal((await call('PUT', '/api/admin/seat-availability', { trip_id: 2, class: 'premium', seats: ['X9-9Z'], enabled: false }, tk)).status, 422);
+  assert.equal((await call('PUT', '/api/admin/seat-availability', { trip_id: 5, class: 'premium', seats: ['P1-1A'], enabled: false }, tk)).status, 422, 'IC1 has no premium');
+  const keep = ['P1-3B', 'P1-4C'];
+  const r = await call('PUT', '/api/admin/seat-availability', { trip_id: 2, class: 'premium', seats: m.seats.map((s) => s.seat).filter((s) => !keep.includes(s)), enabled: false }, tk);
+  assert.equal(r.body.data.enabled_count, 2);
+  const s = await call('POST', '/api/rest/trips/search', { from: 2, to: 3, date: D5, class: 'premium' });
+  assert.equal(s.body.data.find((x) => x.train_no === 'E4').classes[0].seats_available, 2);
+  const leg = (n) => [{ trip_id: 2, date: D5, from: 2, to: 3, class: 'premium', passengers: Array.from({ length: n }, (_, i) => adult('Prem Guest ' + i, 'PG' + i + Math.floor(Math.random() * 1e7))) }];
+  const big = await book({ legs: leg(3) }); assert.equal(big.status, 409); assert.match(big.body.message, /only 2 seat\(s\) are left/);
+  const ok = await book({ legs: leg(2) }); assert.equal(ok.status, 200);
+  assert.deepEqual(ok.body.data.bookings[0].passengers.map((p) => p.seat).sort(), keep);
+  const full = await book({ legs: leg(1) }); assert.equal(full.status, 409); assert.match(full.body.message, /fully booked on train E4/);
+  const tk2 = (await call('POST', '/api/rest/seat-locks/token', {})).body.data.token;
+  assert.equal((await call('POST', '/api/rest/seat-locks/lock', { trip_id: 2, date: D6, seat: 'P1-1A', class: 'premium', token: tk2 })).status, 422, 'closed seat cannot be locked');
+  await call('PUT', '/api/admin/seat-availability', { trip_id: 2, class: 'premium', seats: m.seats.map((x) => x.seat), enabled: true }, tk);
+  assert.equal((await call('GET', `/api/admin/seat-availability?trip_id=2&class=premium`, null, tk)).body.data.enabled_count, 18);
+});
+test('booking without seats auto-assigns distinct seats', async () => {
+  const r = await book({ legs: [{ trip_id: 1, date: D6, from: 2, to: 3, class: 'economy', passengers: [adult('Auto One', 'AU1234567'), adult('Auto Two', 'AU7654321'), { ptype: 'child', full_name: 'Auto Kid', gender: 'M' }] }] });
+  const seats = r.body.data.bookings[0].passengers.map((p) => p.seat); assert.equal(new Set(seats).size, 3); assert.ok(seats.every(Boolean));
+});

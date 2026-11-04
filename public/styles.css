@@ -57,3 +57,4 @@ body{padding-bottom:0;line-height:1.5;-webkit-font-smoothing:antialiased}
 .tile{transition:transform .15s,box-shadow .15s}.tile:hover{transform:translateY(-2px);box-shadow:0 10px 26px #0e5e6f14}
 .hero{border-radius:0 0 28px 28px}
 #toast{bottom:20px}
+#st,#sc,#sd,#bs,#bq{width:auto;min-width:160px}

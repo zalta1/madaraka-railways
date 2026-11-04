@@ -18,14 +18,13 @@ const d = (n) => new Date(Date.now() + 3 * 3600e3 + n * 864e5).toISOString().sli
   await page.click('#searchForm button[type=submit]'); await page.waitForSelector('.kbox'); await page.screenshot({ path: out('03-results'), fullPage: true });
   await page.locator('[data-leg=outbound] .kbox').filter({ hasText: /First Class/ }).first().click();
   await page.locator('[data-leg=return] .kbox').filter({ hasText: /First Class/ }).first().click();
-  await page.click('#next'); await page.waitForSelector('.seat');
-  for (const leg of ['outbound', 'return']) { const free = page.locator(`#map_${leg} .seat.free`); for (let i = 0; i < 3; i++) { await free.nth(0).click(); await page.waitForTimeout(250); } }
-  assert(await page.locator('#map_outbound .seat.mine').count() === 3, '3 seats picked outbound');
+  await page.click('#next'); await page.waitForURL(/\/booking\/passengers/); await page.waitForSelector('#paxForm');
+  assert(await page.locator('.seat').count() === 0, 'no customer seat map'); assert((await page.textContent('#autoNote')).includes('automatically'), 'auto-seat note');
   await page.fill('#n0', 'Amina Odhiambo'); await page.fill('#i0', '30111222'); await page.selectOption('#g0', 'F');
   await page.fill('#n1', 'Brian Otieno'); await page.fill('#i1', '30111223'); await page.selectOption('#g1', 'M');
   await page.fill('#n2', 'Zawadi Otieno'); await page.selectOption('#g2', 'F'); await page.fill('#phone', '0712345678');
-  await page.screenshot({ path: out('04-seat-map-passengers'), fullPage: true });
-  await page.click('#toPay'); await page.waitForURL(/\/booking\/pay/); await page.screenshot({ path: out('05-payment') });
+  await page.screenshot({ path: out('04-passengers-auto-seats'), fullPage: true });
+  await page.click('#toPay'); await page.waitForURL(/\/booking\/pay/); assert(/Seats assigned: F\d-\d+[A-C], F/.test(await page.textContent('aside')), 'seats auto-assigned'); await page.screenshot({ path: out('05-payment') });
   await page.click('#payForm button'); await page.waitForSelector('#modal:not(.hidden)'); await page.screenshot({ path: out('06-mpesa-prompt') });
   await page.waitForURL(/\/booking\/done/, { timeout: 20000 }); await page.waitForSelector('.ticket img'); await page.waitForTimeout(500);
   await page.screenshot({ path: out('07-confirmation-qr'), fullPage: true });
@@ -50,7 +49,17 @@ const d = (n) => new Date(Date.now() + 3 * 3600e3 + n * 864e5).toISOString().sli
   // admin
   await page.goto(BASE + '/admin'); await page.fill('#au', 'admin'); await page.fill('#ap', 'madaraka-demo'); await page.click('#al button'); await page.waitForSelector('.stat');
   await page.screenshot({ path: out('14-admin-reports'), fullPage: true });
-  for (const tab of ['bookings', 'refunds', 'timetables', 'fares', 'seats']) { await page.click(`[data-t=${tab}]`); await page.waitForTimeout(700); if (tab === 'seats') { await page.click('#sv'); await page.waitForTimeout(500); } await page.screenshot({ path: out('15-admin-' + tab), fullPage: true }); }
+  for (const tab of ['bookings', 'refunds', 'timetables', 'fares', 'seats']) { await page.click(`[data-t=${tab}]`); await page.waitForTimeout(700); if (tab === 'seats') {
+      await page.selectOption('#st', '1'); await page.waitForTimeout(500); await page.selectOption('#sc', 'premium'); await page.waitForTimeout(500);
+      await page.click('[data-coff="1"]'); await page.waitForTimeout(600); assert((await page.textContent('#socc')).includes('0 of 18'), 'coach closed');
+      await page.click('[data-s="P1-2B"]'); await page.click('[data-s="P1-3B"]'); await page.click('#sOpen'); await page.waitForTimeout(600);
+      assert((await page.textContent('#socc')).includes('2 of 18'), 'two seats reopened'); await page.click('[data-s="P1-4A"]'); await page.waitForTimeout(200); } await page.screenshot({ path: out('15-admin-' + tab), fullPage: true }); }
+  // customer search now sees only 2 premium seats on E2; 3 passengers cannot pick premium there
+  const resp = await page.request.post(`${BASE}/console/api/rest/trips/search`, { data: { from: 2, to: 3, date: d(1), class: 'premium' } });
+  assert((await resp.json()).data.find((x) => x.train_no === 'E2').classes[0].seats_available === 2, 'search honours admin seat selection');
+  const tok = await page.evaluate(() => sessionStorage.getItem('admin_token'));
+  const all = (await (await page.request.get(`${BASE}/console/api/admin/seat-availability?trip_id=1&class=premium`, { headers: { authorization: 'Bearer ' + tok } })).json()).data.seats.map((x) => x.seat);
+  await page.request.put(`${BASE}/console/api/admin/seat-availability`, { headers: { authorization: 'Bearer ' + tok }, data: { trip_id: 1, class: 'premium', seats: all, enabled: true } });
   // mobile
   const m = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true }); await m.goto(BASE); await m.waitForSelector('#searchForm'); await m.screenshot({ path: out('16-home-mobile'), fullPage: true });
   await browser.close();

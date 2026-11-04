@@ -54,6 +54,10 @@ async function layoutSeats(cls) {
   for (let c = 1; c <= l.coaches; c++) for (let r = 1; r <= l.rows; r++) for (const L of l.letters.slice(0, l.cols)) out.push(`${p}${c}-${r}${L}`);
   return out;
 }
+async function enabledSeats(tripId, cls) {
+  const off = new Set((await q('SELECT seat FROM seat_disabled WHERE trip_id=$1 AND class=$2', [tripId, cls])).map((r) => r.seat));
+  return (await layoutSeats(cls)).filter((s) => !off.has(s));
+}
 async function takenSeats(tripId, date, exceptToken) {
   await q('DELETE FROM seat_locks WHERE expires_at < now()');
   await q("UPDATE bookings SET status='expired' WHERE status='pending' AND expires_at < now()");
@@ -89,9 +93,9 @@ async function searchTrips({ from, to, date, cls, roundTrip }) {
     const classes = [];
     for (const c of t.classes.split(',')) {
       if (cls && cls !== c) continue;
-      const seats = await layoutSeats(c);
+      const seats = await enabledSeats(t.id, c);
       const fares = {}; for (const p of PTYPES) fares[p.type] = await farePrice(t.route.service, c, info.km, info.total, p.type, roundTrip);
-      classes.push({ class: c, fares, seats_total: seats.length, seats_available: seats.filter((s) => !taken.booked.has(s) && !taken.locked.has(s)).length });
+      classes.push({ class: c, fares, seats_total: (await layoutSeats(c)).length, seats_enabled: seats.length, seats_available: seats.filter((s) => !taken.booked.has(s) && !taken.locked.has(s)).length });
     }
     if (!classes.length) continue;
     out.push({ trip_id: t.id, train_no: t.train_no, service: t.route.service, route_name: t.route.name, from, to, date, departure: info.dep, arrival: info.arr,
@@ -193,7 +197,7 @@ function build() {
   }));
   api.post('/rest/seat-locks/lock', wrap(async (req, res) => {
     const { trip_id, date, seat, class: cls, token: tk } = req.body; if (!tk) fail('token', 'Seat-lock token is required.');
-    if (!(await layoutSeats(cls)).includes(seat)) fail('seat', 'That seat does not exist in this class.');
+    if (!(await enabledSeats(Number(trip_id), cls)).includes(seat)) fail('seat', 'That seat is not open for booking.');
     const t = await takenSeats(Number(trip_id), date, tk); if (t.booked.has(seat) || t.locked.has(seat)) fail('seat', 'Sorry, that seat was just taken.', 409);
     const exp = new Date(Date.now() + CONFIG.seat_lock_seconds * 1000);
     await q('INSERT INTO seat_locks VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (trip_id,travel_date,seat) DO UPDATE SET expires_at=$6 WHERE seat_locks.token=$5', [Number(trip_id), date, seat, cls, tk, exp]);
@@ -223,7 +227,11 @@ function build() {
       if (!pax.length || pax.length > CONFIG.max_passengers_per_booking) fail(`legs.${li}.passengers`, `A booking can hold 1 to ${CONFIG.max_passengers_per_booking} passengers.`);
       if (!pax.some((p) => p.ptype === 'adult')) fail(`legs.${li}.passengers`, 'At least one adult must travel.');
       const infants = pax.filter((p) => p.ptype === 'infant').length; if (infants > pax.filter((p) => p.ptype === 'adult').length) fail(`legs.${li}.passengers`, 'Each infant must travel with an adult.');
-      const t = await takenSeats(trip.id, leg.date, tk); const free = (await layoutSeats(leg.class)).filter((s) => !t.booked.has(s) && !t.locked.has(s));
+      const t = await takenSeats(trip.id, leg.date, tk); const free = (await enabledSeats(trip.id, leg.class)).filter((s) => !t.booked.has(s) && !t.locked.has(s));
+      const seated = pax.filter((p) => p.ptype !== 'infant').length;
+      if (free.length + [...t.mine].length < seated) fail(`legs.${li}.class`, free.length + t.mine.size === 0
+        ? `Sorry, ${leg.class === 'first' ? 'First Class' : leg.class[0].toUpperCase() + leg.class.slice(1)} is fully booked on train ${trip.train_no} for ${leg.date}. Please try another class or date.`
+        : `Sorry, only ${free.length + t.mine.size} seat(s) are left in ${leg.class} on train ${trip.train_no} for ${leg.date}, but you need ${seated}. Please try fewer passengers, another class or another date.`, 409);
       const ids = new Set(); const used = new Set();
       for (const [pi, p] of pax.entries()) {
         const f = `legs.${li}.passengers.${pi}`;
@@ -241,7 +249,7 @@ function build() {
         if (p.ptype === 'infant') { p.seat = null; continue; }
         if (p.seat) {
           if (used.has(p.seat)) fail(`${f}.seat`, 'Two passengers cannot share a seat.');
-          if (!t.mine.has(p.seat) && !free.includes(p.seat)) fail(`${f}.seat`, `Seat ${p.seat} is no longer available.`, 409);
+          if (!free.includes(p.seat) && !(t.mine.has(p.seat) && (await enabledSeats(trip.id, leg.class)).includes(p.seat))) fail(`${f}.seat`, `Seat ${p.seat} is no longer available.`, 409);
         } else {
           p.seat = free.find((s) => !used.has(s) && !t.mine.has(s)); if (!p.seat) fail(`${f}.seat`, 'Not enough seats left in this class.', 409);
         }
@@ -387,7 +395,7 @@ function build() {
     if (!pol.can_reschedule) fail('new_date', v.reschedules ? 'A booking can only be rescheduled once.' : `Date changes close ${CONFIG.date_change_notice_hours} hours before departure.`, 409);
     if (newDate === v.travel_date) fail('new_date', 'Pick a different date.');
     const trip = await one('SELECT * FROM trips WHERE id=$1', [v.trip_id]); if (!runsOn(trip, newDate)) fail('new_date', 'This train does not run on that day.');
-    const t = await takenSeats(trip.id, newDate); const free = (await layoutSeats(v.class)).filter((s) => !t.booked.has(s) && !t.locked.has(s));
+    const t = await takenSeats(trip.id, newDate); const free = (await enabledSeats(trip.id, v.class)).filter((s) => !t.booked.has(s) && !t.locked.has(s));
     const need = v.passengers.filter((p) => p.status === 'active' && p.seat); if (free.length < need.length) fail('new_date', 'Not enough seats on that date.', 409);
     const fee = Math.round(v.total * CONFIG.reschedule_fee_pct / 100);
     const assign = {}; const pool = free.slice(); for (const p of need) { const s = pool.includes(p.seat) ? p.seat : pool[0]; assign[p.id] = s; pool.splice(pool.indexOf(s), 1); }
@@ -405,11 +413,11 @@ function build() {
   }));
   api.get('/rest/booking-management/passengers', mgr, (req, res) => ok(res, req.view.passengers));
   api.get('/rest/booking-management/booked-seats', mgr, wrap(async (req, res) => ok(res, [...(await takenSeats(req.view.trip_id, req.view.travel_date)).booked])));
-  api.get('/rest/booking-management/available-seats', mgr, wrap(async (req, res) => { const t = await takenSeats(req.view.trip_id, req.view.travel_date); ok(res, (await layoutSeats(req.query.class || req.view.class)).filter((s) => !t.booked.has(s) && !t.locked.has(s))); }));
+  api.get('/rest/booking-management/available-seats', mgr, wrap(async (req, res) => { const t = await takenSeats(req.view.trip_id, req.view.travel_date); ok(res, (await enabledSeats(req.view.trip_id, req.query.class || req.view.class)).filter((s) => !t.booked.has(s) && !t.locked.has(s))); }));
   api.post('/rest/booking-management/change-seat', mgr, wrap(async (req, res) => {
     const v = req.view; if (v.status !== 'confirmed') fail('ref', 'Only paid bookings can change seats.', 409);
     const p = v.passengers.find((x) => x.id === Number(req.body.passenger_id) && x.status === 'active' && x.seat); if (!p) fail('passenger_id', 'Passenger not found.', 404);
-    const t = await takenSeats(v.trip_id, v.travel_date); const seats = await layoutSeats(v.class);
+    const t = await takenSeats(v.trip_id, v.travel_date); const seats = await enabledSeats(v.trip_id, v.class);
     if (!seats.includes(req.body.seat) || t.booked.has(req.body.seat) || t.locked.has(req.body.seat)) fail('seat', 'That seat is not available.', 409);
     await q('UPDATE passengers SET seat=$2 WHERE id=$1', [p.id, req.body.seat]); ok(res, await bookingView(req.booking), 'Seat changed');
   }));
@@ -460,6 +468,27 @@ function build() {
   api.get('/admin/seat-map', A, wrap(async (req, res) => {
     const { trip_id, date, class: cls } = req.query; const t = await takenSeats(Number(trip_id), date);
     ok(res, (await layoutSeats(cls)).map((s) => ({ seat: s, state: t.booked.has(s) ? 'booked' : t.locked.has(s) ? 'locked' : 'free' })));
+  }));
+  api.get('/admin/seat-availability', A, wrap(async (req, res) => {
+    const tripId = Number(req.query.trip_id), cls = req.query.class || 'economy';
+    const trip = await one('SELECT * FROM trips WHERE id=$1', [tripId]); if (!trip) fail('trip_id', 'Unknown train.', 404);
+    if (!trip.classes.split(',').includes(cls)) fail('class', `Train ${trip.train_no} has no ${cls} class.`);
+    const en = new Set(await enabledSeats(tripId, cls)); const t = req.query.date ? await takenSeats(tripId, req.query.date) : { booked: new Set() };
+    const l = await one('SELECT * FROM seat_layouts WHERE class=$1', [cls]);
+    ok(res, { train_no: trip.train_no, class: cls, layout: l, enabled_count: en.size, seats: (await layoutSeats(cls)).map((s) => ({ seat: s, coach: Number(s.split('-')[0].slice(1)), enabled: en.has(s), booked: t.booked.has(s) })) });
+  }));
+  api.put('/admin/seat-availability', A, wrap(async (req, res) => {
+    const { trip_id, class: cls, seats, enabled } = req.body; const tripId = Number(trip_id);
+    const trip = await one('SELECT * FROM trips WHERE id=$1', [tripId]); if (!trip) fail('trip_id', 'Unknown train.', 404);
+    if (!trip.classes.split(',').includes(cls)) fail('class', `Train ${trip.train_no} has no ${cls} class.`);
+    if (!Array.isArray(seats) || !seats.length) fail('seats', 'Choose at least one seat.');
+    if (typeof enabled !== 'boolean') fail('enabled', 'enabled must be true or false.');
+    const all = new Set(await layoutSeats(cls)); const bad = seats.find((s) => !all.has(s)); if (bad) fail('seats', `Seat ${bad} is not in the ${cls} layout.`);
+    for (const s of seats) {
+      if (enabled) await q('DELETE FROM seat_disabled WHERE trip_id=$1 AND class=$2 AND seat=$3', [tripId, cls, s]);
+      else await q('INSERT INTO seat_disabled VALUES($1,$2,$3) ON CONFLICT DO NOTHING', [tripId, cls, s]);
+    }
+    ok(res, { enabled_count: (await enabledSeats(tripId, cls)).length }, `${seats.length} seat(s) ${enabled ? 'opened' : 'closed'} for booking`);
   }));
   api.get('/admin/bookings', A, wrap(async (req, res) => {
     const s = `%${(req.query.q || '').toUpperCase()}%`;
