@@ -1,0 +1,17 @@
+window.I18N = {
+ en: { demo:'Demo project, not affiliated with Kenya Railways', nav_book:'Book', nav_manage:'Manage booking', nav_stations:'Stations', nav_fares:'Fares & times', nav_about:'About', signin:'Sign in', account:'My account',
+  hero_t:'MADARAKA RAILWAYS', hero_s:'Travel the coast line in comfort', hero_x:'safe · on time · relaxed', oneway:'One way', round:'Round trip', service:'Service', any:'Any',
+  from:'From', to:'To', date:'Departure date', ret:'Return date', klass:'Class', adults:'Adults (18+)', teens:'Teens (12–17)', children:'Children (3–11)', infants:'Infants (0–2)', search:'Find trains',
+  economy:'Economy', first:'First Class', premium:'Premium', express:'Express', intercounty:'Inter-County', suswa:'Suswa Leisure', results:'Available trains', outbound:'Outbound', return:'Return',
+  seats_left:'seats open', per_adult:'per adult', choose:'Select', continue:'Continue', seats_title:'Pick your seats', passengers:'Passenger details', full_name:'Full name', id_no:'ID / passport no.',
+  gender:'Gender', nationality:'Nationality', pay_phone:'Phone for tickets & payment', total:'Total fare', pay:'Payment', pay_now:'Pay now', done:'Booking confirmed', ref:'Booking reference', phone:'Phone number',
+  send_code:'Send code', verify:'Verify', cancel_booking:'Cancel booking', reschedule:'Change date', no_trains:'No trains match that search. Try another date or route.',
+  foot_blurb:'A showcase booking experience for intercity rail travel in Kenya, built for a Ministry of Transport challenge.', foot_links:'Explore', foot_help:'Help', modify:'Modify search', summary:'Trip summary', back:'Back', download_pdf:'Download PDF ticket' },
+ sw: { demo:'Mradi wa majaribio, hauhusiani na Shirika la Reli la Kenya', nav_book:'Kata tiketi', nav_manage:'Simamia tiketi', nav_stations:'Vituo', nav_fares:'Nauli na ratiba', nav_about:'Kuhusu', signin:'Ingia', account:'Akaunti yangu',
+  hero_t:'MADARAKA RAILWAYS', hero_s:'Safiri pwani kwa starehe', hero_x:'salama · kwa wakati · kwa utulivu', oneway:'Safari moja', round:'Kwenda na kurudi', service:'Huduma', any:'Yoyote',
+  from:'Kutoka', to:'Kwenda', date:'Tarehe ya safari', ret:'Tarehe ya kurudi', klass:'Daraja', adults:'Watu wazima (18+)', teens:'Vijana (12–17)', children:'Watoto (3–11)', infants:'Wachanga (0–2)', search:'Tafuta treni',
+  economy:'Daraja la kawaida', first:'Daraja la kwanza', premium:'Premium', express:'Express', intercounty:'Kati ya kaunti', suswa:'Suswa', results:'Treni zinazopatikana', outbound:'Kwenda', return:'Kurudi',
+  seats_left:'viti wazi', per_adult:'kwa mtu mzima', choose:'Chagua', continue:'Endelea', seats_title:'Chagua viti', passengers:'Maelezo ya abiria', full_name:'Jina kamili', id_no:'Kitambulisho / pasipoti',
+  gender:'Jinsia', nationality:'Uraia', pay_phone:'Simu ya tiketi na malipo', total:'Jumla ya nauli', pay:'Malipo', pay_now:'Lipa sasa', done:'Tiketi imethibitishwa', ref:'Nambari ya tiketi', phone:'Nambari ya simu',
+  send_code:'Tuma msimbo', verify:'Thibitisha', cancel_booking:'Ghairi tiketi', reschedule:'Badilisha tarehe', no_trains:'Hakuna treni kwa utafutaji huu. Jaribu tarehe nyingine.',
+  foot_blurb:'Mfumo wa maonyesho wa kukata tiketi za treni Kenya, kwa shindano la Wizara ya Uchukuzi.', foot_links:'Gundua', foot_help:'Msaada', modify:'Badilisha utafutaji', summary:'Muhtasari wa safari', back:'Rudi', download_pdf:'Pakua tiketi (PDF)' } };
